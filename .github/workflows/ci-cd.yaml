@@ -95,25 +95,39 @@ jobs:
         # Получаем URL сервиса
         APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
         
-        if [ -n "$APP_URL" ]; then
-          echo "Testing endpoint: $APP_URL/todos"
-          
-          # Пробуем несколько раз с правильным синтаксисом
-          for i in $(seq 1 5); do
-            echo "Attempt $i..."
-            if curl -s "$APP_URL/todos"; then
-              echo "✅ Application is responding!"
-              break
-            else
-              echo "Waiting... ($i/5)"
-              sleep 10
-            fi
-          done
-        else
-          echo "Could not get service URL"
-          echo "Debug info:"
-          kubectl describe service todo-app-service
+        # Проверяем, что URL не пустой
+        if [ -z "$APP_URL" ]; then
+          echo "ERROR: Could not get application URL"
+          echo "Trying alternative method..."
+          APP_URL="http://$(kubectl get svc todo-app-service -o jsonpath='{.spec.clusterIP}'):$(kubectl get svc todo-app-service -o jsonpath='{.spec.ports[0].port}')"
         fi
+        
+        echo "Testing endpoint: $APP_URL/todos"
+        
+        # Пробуем несколько раз
+        max_attempts=5
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt of $max_attempts..."
+          
+          if curl -s -f "$APP_URL/todos" > /dev/null 2>&1; then
+            echo "✅ SUCCESS: Application is responding!"
+            echo "Response:"
+            curl -s "$APP_URL/todos" | head -c 200
+            exit 0
+          else
+            echo "Waiting... ($attempt/$max_attempts)"
+            sleep 10
+            attempt=$((attempt + 1))
+          fi
+        done
+        
+        echo "❌ FAILED: Application not responding after $max_attempts attempts"
+        echo "Debug information:"
+        kubectl get pods
+        kubectl describe svc todo-app-service
+        exit 1
 
 
         - name: Test Application Endpoints
