@@ -182,21 +182,21 @@ jobs:
 
 
     - name: Verify MongoDB Connection
-    run: |
-      echo "=== Verifying MongoDB ==="
-      
-      # Проверяем, что MongoDB поднята
-      kubectl get pods -l app=mongodb
-      
-      # Проверяем логи MongoDB
-      MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
-      echo "MongoDB pod: $MONGO_POD"
-      
-      # Проверяем, что MongoDB принимает подключения
-      kubectl exec $MONGO_POD -- mongosh --eval "db.adminCommand('ping')" && echo "✅ MongoDB is responsive"
-      
-      # Проверяем базу данных todo
-      echo "Checking todo database..."
-      kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
-
+      run: |
+        echo "=== Verifying MongoDB ==="
+        
+        # Проверяем, что MongoDB поднята
+        kubectl get pods -l app=mongodb
+        
+        # Проверяем логи MongoDB
+        MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
+        echo "MongoDB pod: $MONGO_POD"
+        
+        # Проверяем, что MongoDB принимает подключения
+        kubectl exec $MONGO_POD -- mongosh --eval "db.adminCommand('ping')" && echo "✅ MongoDB is responsive"
+        
+        # Проверяем базу данных todo
+        echo "Checking todo database..."
+        kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
+  
 
