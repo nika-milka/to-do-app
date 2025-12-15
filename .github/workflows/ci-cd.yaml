@@ -12,23 +12,31 @@ jobs:
     # 1. Получаем код
     - uses: actions/checkout@v3
     
-    # 2. Отладка: проверяем секреты (ИСПРАВЛЕННЫЙ ВАРИАНТ)
+    # 2. Отладка: проверяем секреты (БЕЗ функции length)
     - name: Debug - Check secrets
       run: |
         echo "=== Debug: Checking secrets ==="
-        if [ -n "${{ secrets.DOCKER_USERNAME }}" ]; then
-          echo "✓ DOCKER_USERNAME is set (length: ${{ length(secrets.DOCKER_USERNAME) }})"
+        
+        # Проверяем DOCKER_USERNAME
+        if [[ -n "${{ secrets.DOCKER_USERNAME }}" ]]; then
+          echo "✓ DOCKER_USERNAME is set"
+          echo "  Value: ${{ secrets.DOCKER_USERNAME }}"
         else
           echo "✗ DOCKER_USERNAME is NOT set"
         fi
         
-        if [ -n "${{ secrets.DOCKER_PASSWORD }}" ]; then
-          echo "✓ DOCKER_PASSWORD is set (length: ${{ length(secrets.DOCKER_PASSWORD) }})"
+        # Проверяем DOCKER_PASSWORD
+        if [[ -n "${{ secrets.DOCKER_PASSWORD }}" ]]; then
+          echo "✓ DOCKER_PASSWORD is set"
+          # Показываем только первые 2 символа для безопасности
+          PASS="${{ secrets.DOCKER_PASSWORD }}"
+          echo "  Starts with: ${PASS:0:2}..."
         else
           echo "✗ DOCKER_PASSWORD is NOT set"
         fi
         
-        if [ -n "${{ secrets.KUBECONFIG }}" ]; then
+        # Проверяем KUBECONFIG
+        if [[ -n "${{ secrets.KUBECONFIG }}" ]]; then
           echo "✓ KUBECONFIG is set"
         else
           echo "✗ KUBECONFIG is NOT set"
@@ -38,7 +46,7 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
     
-    # 4. Логин в Docker Hub (ПРОСТОЙ И НАДЕЖНЫЙ ВАРИАНТ)
+    # 4. Логин в Docker Hub
     - name: Log in to Docker Hub
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
@@ -46,7 +54,7 @@ jobs:
       run: |
         echo "Attempting Docker login for user: $DOCKER_USER"
         echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-        echo "Docker login completed"
+        echo "✓ Docker login successful"
     
     # 5. Сборка и пушим образ
     - name: Build and push Docker image
@@ -70,21 +78,21 @@ jobs:
         export KUBECONFIG=/tmp/kubeconfig
         
         echo "=== Deploying to Kubernetes ==="
-        kubectl cluster-info
         
-        # Создаем namespace если нужно
-        kubectl create namespace todo-app --dry-run=client -o yaml | kubectl apply -f -
+        # Проверяем подключение
+        kubectl cluster-info
         
         # Применяем манифесты
         if [ -d "k8s" ]; then
           kubectl apply -f k8s/
+          echo "✓ Manifests applied"
         else
           echo "ERROR: k8s directory not found!"
-          echo "Current directory contents:"
           ls -la
           exit 1
         fi
         
         # Проверяем деплой
-        echo "=== Deployment status ==="
-        kubectl get pods,svc,deploy -n todo-app || kubectl get pods,svc,deploy
+        echo "=== Checking deployment ==="
+        kubectl get pods,svc,deploy
+        echo "✓ Deployment completed"
