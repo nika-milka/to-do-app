@@ -116,8 +116,7 @@ jobs:
         fi
 
 
-
-    - name: Test Application Endpoints
+        - name: Test Application Endpoints
   run: |
     echo "=== Testing CRUD Operations ==="
     
@@ -182,8 +181,6 @@ jobs:
     fi
 
 
-
-
     - name: Verify MongoDB Connection
   run: |
     echo "=== Verifying MongoDB ==="
@@ -201,3 +198,5 @@ jobs:
     # Проверяем базу данных todo
     echo "Checking todo database..."
     kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
+
+
