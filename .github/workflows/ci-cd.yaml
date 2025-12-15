@@ -98,8 +98,8 @@ jobs:
         if [ -n "$APP_URL" ]; then
           echo "Testing endpoint: $APP_URL/todos"
           
-          # Пробуем несколько раз
-          for i in {1..5}; do
+          # Пробуем несколько раз с правильным синтаксисом
+          for i in $(seq 1 5); do
             echo "Attempt $i..."
             if curl -s "$APP_URL/todos"; then
               echo "✅ Application is responding!"
