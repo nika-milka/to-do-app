@@ -1,0 +1,8 @@
+{
+  "name": "todo-app",
+  "scripts": { "start": "node app.js" },
+  "dependencies": {
+    "express": "^4.18.0",
+    "mongoose": "^7.0.0"
+  }
+}
