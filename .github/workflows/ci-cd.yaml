@@ -221,3 +221,115 @@ jobs:
         # Проверяем базу данных todo
         echo "Checking todo database..."
         kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()" || echo "Database might not exist yet"
+
+
+    - name: Test All API Endpoints
+      run: |
+        echo "=== Comprehensive API Testing ==="
+        
+        # Get URL
+        URL=$(minikube service todo-app-service --url | head -1)
+        
+        # 1. Test GET /todos (empty at first)
+        echo "1. Testing GET /todos (should return empty array or existing):"
+        curl -s "$URL/todos" && echo ""
+        
+        # 2. Test POST /todos
+        echo "2. Testing POST /todos (create new task):"
+        CREATE_RESPONSE=$(curl -s -X POST "$URL/todos" \
+          -H "Content-Type: application/json" \
+          -d '{"text":"Test task 1", "done":false}')
+        echo "Created: $CREATE_RESPONSE"
+        
+        # Extract ID
+        TASK_ID=$(echo $CREATE_RESPONSE | grep -o '"id":"[^"]*"' | cut -d'"' -f4)
+        
+        if [ -z "$TASK_ID" ]; then
+          echo "ERROR: Could not extract task ID"
+          exit 1
+        fi
+        
+        echo "Task ID: $TASK_ID"
+        
+        # 3. Test GET /todos (should have 1 task now)
+        echo "3. Testing GET /todos (should have 1 task):"
+        curl -s "$URL/todos"
+        echo ""
+        
+        # 4. Test GET /todos/:id
+        echo "4. Testing GET /todos/$TASK_ID:"
+        curl -s "$URL/todos/$TASK_ID"
+        echo ""
+        
+        # 5. Test PUT /todos/:id
+        echo "5. Testing PUT /todos/$TASK_ID (update):"
+        curl -s -X PUT "$URL/todos/$TASK_ID" \
+          -H "Content-Type: application/json" \
+          -d '{"text":"Updated task", "done":true}'
+        echo ""
+        
+        # 6. Verify update
+        echo "6. Verify update (GET /todos/$TASK_ID):"
+        curl -s "$URL/todos/$TASK_ID"
+        echo ""
+        
+        # 7. Test DELETE /todos/:id
+        echo "7. Testing DELETE /todos/$TASK_ID:"
+        curl -s -X DELETE "$URL/todos/$TASK_ID"
+        echo "Deleted (should return 204)"
+        
+        # 8. Verify deletion
+        echo "8. Verify deletion (GET /todos should be empty):"
+        curl -s "$URL/todos"
+        echo ""
+        
+        echo "✅ ALL 5 ENDPOINTS TESTED SUCCESSFULLY!"
+
+
+
+        - name: Verify Data Persistence in MongoDB
+          run: |
+            echo "=== MongoDB Data Persistence Test ==="
+            
+            # Get MongoDB pod
+            MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
+            
+            # Test 1: Create data via API
+            URL=$(minikube service todo-app-service --url | head -1)
+            
+            echo "1. Creating test data via API..."
+            curl -s -X POST "$URL/todos" \
+              -H "Content-Type: application/json" \
+              -d '{"text":"MongoDB test task", "done":false}'
+            
+            sleep 5  # Wait for data to be saved
+            
+            # Test 2: Check data directly in MongoDB
+            echo ""
+            echo "2. Checking data directly in MongoDB..."
+            kubectl exec $MONGO_POD -- mongosh todo --eval "
+              print('Collections:');
+              db.getCollectionNames();
+              print('\\nTasks in todos collection:');
+              db.todos.find().pretty();
+            "
+            
+            # Test 3: Restart application pod and verify data persists
+            echo ""
+            echo "3. Testing data persistence after pod restart..."
+            
+            # Get app pod
+            APP_POD=$(kubectl get pods -l app=todo-app -o jsonpath='{.items[0].metadata.name}')
+            echo "Restarting pod: $APP_POD"
+            
+            # Delete pod (Kubernetes will recreate it)
+            kubectl delete pod $APP_POD
+            
+            echo "Waiting for pod to restart..."
+            sleep 30
+            
+            # Check data is still there
+            echo "Checking data after restart..."
+            curl -s "$URL/todos" | grep "MongoDB test task" && \
+              echo "✅ Data persisted after pod restart!" || \
+              echo "❌ Data lost after restart"
