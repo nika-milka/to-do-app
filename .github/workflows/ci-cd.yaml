@@ -12,21 +12,12 @@ jobs:
     # 1. Получаем код
     - uses: actions/checkout@v3
     
-    # 2. Отладка: проверяем секреты
-    - name: Debug - Check if secrets exist
+    # 2. Отладка: проверяем секреты (ОБЯЗАТЕЛЬНО)
+    - name: Debug - Check secrets
       run: |
-        echo "Checking secrets..."
-        if [ -n "${{ secrets.DOCKER_USERNAME }}" ]; then
-          echo "✓ DOCKER_USERNAME is SET"
-        else
-          echo "✗ DOCKER_USERNAME is NOT SET"
-        fi
-        
-        if [ -n "${{ secrets.DOCKER_PASSWORD }}" ]; then
-          echo "✓ DOCKER_PASSWORD is SET"
-        else
-          echo "✗ DOCKER_PASSWORD is NOT SET"
-        fi
+        echo "DOCKER_USERNAME value: '${{ secrets.DOCKER_USERNAME }}'"
+        echo "DOCKER_PASSWORD first 5 chars: '${ {{ secrets.DOCKER_PASSWORD }}:0:5 }'"
+        echo "KUBECONFIG exists: ${{ secrets.KUBECONFIG != '' }}"
     
     # 3. Настраиваем Docker Buildx
     - name: Set up Docker Buildx
@@ -38,8 +29,8 @@ jobs:
         DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
         DOCKER_PASS: ${{ secrets.DOCKER_PASSWORD }}
       run: |
+        echo "Logging in to Docker Hub as: $DOCKER_USER"
         echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-
     
     # 5. Сборка и пушим образ
     - name: Build and push Docker image
@@ -54,20 +45,28 @@ jobs:
     # 6. Настраиваем kubectl
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
     
     # 7. Деплой в Kubernetes
     - name: Deploy to Kubernetes
+      env:
+        KUBE_CONFIG: ${{ secrets.KUBECONFIG }}
       run: |
         # Создаем временный файл с конфигом
-        echo "${{ secrets.KUBECONFIG }}" | base64 --decode > /tmp/kubeconfig
+        echo "$KUBE_CONFIG" | base64 --decode > /tmp/kubeconfig
         export KUBECONFIG=/tmp/kubeconfig
         
         # Проверяем подключение
         kubectl cluster-info
         
         # Применяем манифесты
-        kubectl apply -f k8s/ --recursive
+        if [ -d "k8s" ]; then
+          kubectl apply -f k8s/
+        else
+          echo "Directory k8s not found!"
+          ls -la
+        fi
         
         # Проверяем деплой
-        kubectl get pods
-        kubectl get services
+        kubectl get pods,svc,deploy
