@@ -1,0 +1,215 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # 1. Логин в Docker Hub
+    - name: Log in to Docker Hub
+      env:
+        DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
+        DOCKER_PASS: ${{ secrets.DOCKER_PASSWORD }}
+      run: |
+        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    # 2. Сборка и пуш
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ secrets.DOCKER_USERNAME }}/todo-app:latest
+    
+    # 3. Установка Minikube (вместо использования внешнего KUBECONFIG)
+    - name: Install and start Minikube
+      run: |
+        echo "=== Installing Minikube ==="
+        
+        # Установка kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+        
+        # Установка Minikube
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        sudo install minikube-linux-amd64 /usr/local/bin/minikube
+        
+        # Запуск Minikube
+        minikube start --driver=docker
+        
+        # Проверка
+        echo "Minikube status:"
+        minikube status
+        
+        echo "Kubernetes cluster info:"
+        kubectl cluster-info
+        
+        echo "Nodes:"
+        kubectl get nodes
+        
+    # 4. Деплой приложения
+    - name: Deploy Application
+      run: |
+        echo "=== Deploying application ==="
+        
+        # Применяем манифесты MongoDB
+        if [ -f "k8s/mongo-deployment.yaml" ]; then
+          kubectl apply -f k8s/mongo-deployment.yaml
+          kubectl apply -f k8s/mongo-service.yaml
+          echo "MongoDB deployed"
+        fi
+        
+        # Применяем манифесты приложения
+        if [ -f "k8s/deployment.yaml" ]; then
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          echo "Application deployed"
+        fi
+        
+        # Ждем запуска подов
+        echo "Waiting for pods to be ready..."
+        sleep 30
+        
+        # Проверяем состояние
+        echo "=== Current state ==="
+        kubectl get pods,svc,deploy -o wide
+        
+        # Получаем URL
+        echo "=== Application URL ==="
+        minikube service todo-app-service --url || echo "Run: minikube service todo-app-service --url"
+        
+    # 5. Тестирование
+    - name: Test Application
+      run: |
+        echo "=== Testing application ==="
+        
+        # Получаем URL сервиса
+        APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
+        
+        # Проверяем, что URL не пустой
+        if [ -z "$APP_URL" ]; then
+          echo "ERROR: Could not get application URL"
+          echo "Trying alternative method..."
+          APP_URL="http://$(kubectl get svc todo-app-service -o jsonpath='{.spec.clusterIP}'):$(kubectl get svc todo-app-service -o jsonpath='{.spec.ports[0].port}')"
+        fi
+        
+        echo "Testing endpoint: $APP_URL/todos"
+        
+        # Пробуем несколько раз
+        max_attempts=5
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt of $max_attempts..."
+          
+          if curl -s -f "$APP_URL/todos" > /dev/null 2>&1; then
+            echo "✅ SUCCESS: Application is responding!"
+            echo "Response:"
+            curl -s "$APP_URL/todos" | head -c 200
+            exit 0
+          else
+            echo "Waiting... ($attempt/$max_attempts)"
+            sleep 10
+            attempt=$((attempt + 1))
+          fi
+        done
+        
+        echo "❌ FAILED: Application not responding after $max_attempts attempts"
+        echo "Debug information:"
+        kubectl get pods
+        kubectl describe svc todo-app-service
+        exit 1
+
+
+        - name: Test Application Endpoints
+        run: |
+        echo "=== Testing CRUD Operations ==="
+        
+        # Получаем URL приложения
+        APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
+        
+        if [ -z "$APP_URL" ]; then
+          echo "ERROR: Could not get application URL"
+          exit 1
+        fi
+        
+        echo "Application URL: $APP_URL"
+        
+        # Тест 1: GET /todos (должен вернуть пустой массив или существующие задачи)
+        echo ""
+        echo "1. Testing GET /todos:"
+        curl -s -X GET "$APP_URL/todos" | jq . || echo "Response (raw):"
+        curl -s -X GET "$APP_URL/todos"
+        
+        # Тест 2: POST /todos (создание новой задачи)
+        echo ""
+        echo "2. Testing POST /todos:"
+        RESPONSE=$(curl -s -X POST "$APP_URL/todos" \
+          -H "Content-Type: application/json" \
+          -d '{"text":"Test task from CI/CD", "done":false}')
+        
+        echo "Response: $RESPONSE"
+        
+        # Извлекаем ID созданной задачи
+        TASK_ID=$(echo $RESPONSE | grep -o '"id":"[^"]*"' | cut -d'"' -f4 || echo "")
+        
+        if [ -n "$TASK_ID" ]; then
+          echo "Created task ID: $TASK_ID"
+          
+          # Тест 3: GET /todos/:id
+          echo ""
+          echo "3. Testing GET /todos/$TASK_ID:"
+          curl -s -X GET "$APP_URL/todos/$TASK_ID" | jq . || curl -s -X GET "$APP_URL/todos/$TASK_ID"
+          
+          # Тест 4: PUT /todos/:id
+          echo ""
+          echo "4. Testing PUT /todos/$TASK_ID:"
+          curl -s -X PUT "$APP_URL/todos/$TASK_ID" \
+            -H "Content-Type: application/json" \
+            -d '{"text":"Updated test task", "done":true}' | jq . || echo "Update response"
+          
+          # Тест 5: DELETE /todos/:id
+          echo ""
+          echo "5. Testing DELETE /todos/$TASK_ID:"
+          curl -s -X DELETE "$APP_URL/todos/$TASK_ID"
+          echo "Task deleted (status 204 expected)"
+          
+          # Проверяем, что задача удалена
+          echo ""
+          echo "6. Verify deletion (GET /todos):"
+          curl -s -X GET "$APP_URL/todos" | jq .
+          
+          echo "✅ All CRUD tests completed!"
+        else
+          echo "❌ Failed to create task, skipping other tests"
+          exit 1
+        fi
+
+
+    - name: Verify MongoDB Connection
+      run: |
+        echo "=== Verifying MongoDB ==="
+        
+        # Проверяем, что MongoDB поднята
+        kubectl get pods -l app=mongodb
+        
+        # Проверяем логи MongoDB
+        MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
+        echo "MongoDB pod: $MONGO_POD"
+        
+        # Проверяем, что MongoDB принимает подключения
+        kubectl exec $MONGO_POD -- mongosh --eval "db.adminCommand('ping')" && echo "✅ MongoDB is responsive"
+        
+        # Проверяем базу данных todo
+        echo "Checking todo database..."
+        kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
+  
