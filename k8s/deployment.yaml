@@ -14,6 +14,6 @@ spec:
     spec:
       containers:
       - name: todo-app
-        image: ВАШ_ЛОГИН/todo-app:latest  # ← ПРОВЕРЬТЕ ЭТУ СТРОКУ!
+        image: nikamilka/todo-app:latest  
         ports:
         - containerPort: 3000

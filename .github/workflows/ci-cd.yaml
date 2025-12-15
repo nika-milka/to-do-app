@@ -212,9 +212,4 @@ jobs:
         # Проверяем базу данных todo
         echo "Checking todo database..."
         kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
-<<<<<<< HEAD
   
-=======
-  
-
->>>>>>> 60e382573c90e37e469c8f02d3681f1944f133e4
