@@ -117,86 +117,86 @@ jobs:
 
 
         - name: Test Application Endpoints
-  run: |
-    echo "=== Testing CRUD Operations ==="
-    
-    # Получаем URL приложения
-    APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
-    
-    if [ -z "$APP_URL" ]; then
-      echo "ERROR: Could not get application URL"
-      exit 1
-    fi
-    
-    echo "Application URL: $APP_URL"
-    
-    # Тест 1: GET /todos (должен вернуть пустой массив или существующие задачи)
-    echo ""
-    echo "1. Testing GET /todos:"
-    curl -s -X GET "$APP_URL/todos" | jq . || echo "Response (raw):"
-    curl -s -X GET "$APP_URL/todos"
-    
-    # Тест 2: POST /todos (создание новой задачи)
-    echo ""
-    echo "2. Testing POST /todos:"
-    RESPONSE=$(curl -s -X POST "$APP_URL/todos" \
-      -H "Content-Type: application/json" \
-      -d '{"text":"Test task from CI/CD", "done":false}')
-    
-    echo "Response: $RESPONSE"
-    
-    # Извлекаем ID созданной задачи
-    TASK_ID=$(echo $RESPONSE | grep -o '"id":"[^"]*"' | cut -d'"' -f4 || echo "")
-    
-    if [ -n "$TASK_ID" ]; then
-      echo "Created task ID: $TASK_ID"
-      
-      # Тест 3: GET /todos/:id
-      echo ""
-      echo "3. Testing GET /todos/$TASK_ID:"
-      curl -s -X GET "$APP_URL/todos/$TASK_ID" | jq . || curl -s -X GET "$APP_URL/todos/$TASK_ID"
-      
-      # Тест 4: PUT /todos/:id
-      echo ""
-      echo "4. Testing PUT /todos/$TASK_ID:"
-      curl -s -X PUT "$APP_URL/todos/$TASK_ID" \
-        -H "Content-Type: application/json" \
-        -d '{"text":"Updated test task", "done":true}' | jq . || echo "Update response"
-      
-      # Тест 5: DELETE /todos/:id
-      echo ""
-      echo "5. Testing DELETE /todos/$TASK_ID:"
-      curl -s -X DELETE "$APP_URL/todos/$TASK_ID"
-      echo "Task deleted (status 204 expected)"
-      
-      # Проверяем, что задача удалена
-      echo ""
-      echo "6. Verify deletion (GET /todos):"
-      curl -s -X GET "$APP_URL/todos" | jq .
-      
-      echo "✅ All CRUD tests completed!"
-    else
-      echo "❌ Failed to create task, skipping other tests"
-      exit 1
-    fi
+        run: |
+        echo "=== Testing CRUD Operations ==="
+        
+        # Получаем URL приложения
+        APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
+        
+        if [ -z "$APP_URL" ]; then
+          echo "ERROR: Could not get application URL"
+          exit 1
+        fi
+        
+        echo "Application URL: $APP_URL"
+        
+        # Тест 1: GET /todos (должен вернуть пустой массив или существующие задачи)
+        echo ""
+        echo "1. Testing GET /todos:"
+        curl -s -X GET "$APP_URL/todos" | jq . || echo "Response (raw):"
+        curl -s -X GET "$APP_URL/todos"
+        
+        # Тест 2: POST /todos (создание новой задачи)
+        echo ""
+        echo "2. Testing POST /todos:"
+        RESPONSE=$(curl -s -X POST "$APP_URL/todos" \
+          -H "Content-Type: application/json" \
+          -d '{"text":"Test task from CI/CD", "done":false}')
+        
+        echo "Response: $RESPONSE"
+        
+        # Извлекаем ID созданной задачи
+        TASK_ID=$(echo $RESPONSE | grep -o '"id":"[^"]*"' | cut -d'"' -f4 || echo "")
+        
+        if [ -n "$TASK_ID" ]; then
+          echo "Created task ID: $TASK_ID"
+          
+          # Тест 3: GET /todos/:id
+          echo ""
+          echo "3. Testing GET /todos/$TASK_ID:"
+          curl -s -X GET "$APP_URL/todos/$TASK_ID" | jq . || curl -s -X GET "$APP_URL/todos/$TASK_ID"
+          
+          # Тест 4: PUT /todos/:id
+          echo ""
+          echo "4. Testing PUT /todos/$TASK_ID:"
+          curl -s -X PUT "$APP_URL/todos/$TASK_ID" \
+            -H "Content-Type: application/json" \
+            -d '{"text":"Updated test task", "done":true}' | jq . || echo "Update response"
+          
+          # Тест 5: DELETE /todos/:id
+          echo ""
+          echo "5. Testing DELETE /todos/$TASK_ID:"
+          curl -s -X DELETE "$APP_URL/todos/$TASK_ID"
+          echo "Task deleted (status 204 expected)"
+          
+          # Проверяем, что задача удалена
+          echo ""
+          echo "6. Verify deletion (GET /todos):"
+          curl -s -X GET "$APP_URL/todos" | jq .
+          
+          echo "✅ All CRUD tests completed!"
+        else
+          echo "❌ Failed to create task, skipping other tests"
+          exit 1
+        fi
 
 
     - name: Verify MongoDB Connection
-  run: |
-    echo "=== Verifying MongoDB ==="
-    
-    # Проверяем, что MongoDB поднята
-    kubectl get pods -l app=mongodb
-    
-    # Проверяем логи MongoDB
-    MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
-    echo "MongoDB pod: $MONGO_POD"
-    
-    # Проверяем, что MongoDB принимает подключения
-    kubectl exec $MONGO_POD -- mongosh --eval "db.adminCommand('ping')" && echo "✅ MongoDB is responsive"
-    
-    # Проверяем базу данных todo
-    echo "Checking todo database..."
-    kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
+    run: |
+      echo "=== Verifying MongoDB ==="
+      
+      # Проверяем, что MongoDB поднята
+      kubectl get pods -l app=mongodb
+      
+      # Проверяем логи MongoDB
+      MONGO_POD=$(kubectl get pods -l app=mongodb -o jsonpath='{.items[0].metadata.name}')
+      echo "MongoDB pod: $MONGO_POD"
+      
+      # Проверяем, что MongoDB принимает подключения
+      kubectl exec $MONGO_POD -- mongosh --eval "db.adminCommand('ping')" && echo "✅ MongoDB is responsive"
+      
+      # Проверяем базу данных todo
+      echo "Checking todo database..."
+      kubectl exec $MONGO_POD -- mongosh todo --eval "db.getCollectionNames()"
 
 
