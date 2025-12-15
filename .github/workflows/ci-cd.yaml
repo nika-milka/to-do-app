@@ -7,66 +7,32 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    # 1. Получаем код
     - uses: actions/checkout@v3
-    
-    # 2. Отладка: проверяем секреты (ОБЯЗАТЕЛЬНО)
-    - name: Debug - Check secrets
-      run: |
-        echo "DOCKER_USERNAME value: '${{ secrets.DOCKER_USERNAME }}'"
-        echo "DOCKER_PASSWORD first 5 chars: '${ {{ secrets.DOCKER_PASSWORD }}:0:5 }'"
-        echo "KUBECONFIG exists: ${{ secrets.KUBECONFIG != '' }}"
-    
-    # 3. Настраиваем Docker Buildx
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
-    
-    # 4. Логин в Docker Hub (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+
     - name: Log in to Docker Hub
-      env:
-        DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
-        DOCKER_PASS: ${{ secrets.DOCKER_PASSWORD }}
-      run: |
-        echo "Logging in to Docker Hub as: $DOCKER_USER"
-        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-    
-    # 5. Сборка и пушим образ
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
         context: .
         push: true
-        tags: |
-          ${{ secrets.DOCKER_USERNAME }}/todo-app:latest
-          ${{ secrets.DOCKER_USERNAME }}/todo-app:${{ github.sha }}
-    
-    # 6. Настраиваем kubectl
+        tags: ${{ secrets.DOCKER_USERNAME }}/todo-app:latest
+
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
       with:
         version: 'latest'
-    
-    # 7. Деплой в Kubernetes
-    - name: Deploy to Kubernetes
-      env:
-        KUBE_CONFIG: ${{ secrets.KUBECONFIG }}
+
+    - name: Deploy to Minikube
       run: |
-        # Создаем временный файл с конфигом
-        echo "$KUBE_CONFIG" | base64 --decode > /tmp/kubeconfig
-        export KUBECONFIG=/tmp/kubeconfig
-        
-        # Проверяем подключение
-        kubectl cluster-info
-        
-        # Применяем манифесты
-        if [ -d "k8s" ]; then
-          kubectl apply -f k8s/
-        else
-          echo "Directory k8s not found!"
-          ls -la
-        fi
-        
-        # Проверяем деплой
-        kubectl get pods,svc,deploy
+        kubectl apply -f k8s/
+      env:
+        KUBECONFIG: ${{ secrets.KUBECONFIG }}
