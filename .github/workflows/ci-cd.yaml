@@ -9,54 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 1. Получаем код
     - uses: actions/checkout@v3
     
-    # 2. Отладка: проверяем секреты (БЕЗ функции length)
-    - name: Debug - Check secrets
-      run: |
-        echo "=== Debug: Checking secrets ==="
-        
-        # Проверяем DOCKER_USERNAME
-        if [[ -n "${{ secrets.DOCKER_USERNAME }}" ]]; then
-          echo "✓ DOCKER_USERNAME is set"
-          echo "  Value: ${{ secrets.DOCKER_USERNAME }}"
-        else
-          echo "✗ DOCKER_USERNAME is NOT set"
-        fi
-        
-        # Проверяем DOCKER_PASSWORD
-        if [[ -n "${{ secrets.DOCKER_PASSWORD }}" ]]; then
-          echo "✓ DOCKER_PASSWORD is set"
-          # Показываем только первые 2 символа для безопасности
-          PASS="${{ secrets.DOCKER_PASSWORD }}"
-          echo "  Starts with: ${PASS:0:2}..."
-        else
-          echo "✗ DOCKER_PASSWORD is NOT set"
-        fi
-        
-        # Проверяем KUBECONFIG
-        if [[ -n "${{ secrets.KUBECONFIG }}" ]]; then
-          echo "✓ KUBECONFIG is set"
-        else
-          echo "✗ KUBECONFIG is NOT set"
-        fi
-    
-    # 3. Настраиваем Docker Buildx
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    
-    # 4. Логин в Docker Hub
+    # 1. Логин в Docker Hub
     - name: Log in to Docker Hub
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USERNAME }}
         DOCKER_PASS: ${{ secrets.DOCKER_PASSWORD }}
       run: |
-        echo "Attempting Docker login for user: $DOCKER_USER"
         echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-        echo "✓ Docker login successful"
     
-    # 5. Сборка и пушим образ
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    # 2. Сборка и пуш
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
@@ -64,35 +30,87 @@ jobs:
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/todo-app:latest
     
-    # 6. Настраиваем kubectl
-    - name: Set up kubectl
-      uses: azure/setup-kubectl@v3
-    
-    # 7. Деплой в Kubernetes
-    - name: Deploy to Kubernetes
-      env:
-        KUBE_CONFIG: ${{ secrets.KUBECONFIG }}
+    # 3. Установка Minikube (вместо использования внешнего KUBECONFIG)
+    - name: Install and start Minikube
       run: |
-        # Создаем временный файл с конфигом
-        echo "$KUBE_CONFIG" | base64 --decode > /tmp/kubeconfig
-        export KUBECONFIG=/tmp/kubeconfig
+        echo "=== Installing Minikube ==="
         
-        echo "=== Deploying to Kubernetes ==="
+        # Установка kubectl
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
         
-        # Проверяем подключение
+        # Установка Minikube
+        curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        sudo install minikube-linux-amd64 /usr/local/bin/minikube
+        
+        # Запуск Minikube
+        minikube start --driver=docker
+        
+        # Проверка
+        echo "Minikube status:"
+        minikube status
+        
+        echo "Kubernetes cluster info:"
         kubectl cluster-info
         
-        # Применяем манифесты
-        if [ -d "k8s" ]; then
-          kubectl apply -f k8s/
-          echo "✓ Manifests applied"
-        else
-          echo "ERROR: k8s directory not found!"
-          ls -la
-          exit 1
+        echo "Nodes:"
+        kubectl get nodes
+        
+    # 4. Деплой приложения
+    - name: Deploy Application
+      run: |
+        echo "=== Deploying application ==="
+        
+        # Применяем манифесты MongoDB
+        if [ -f "k8s/mongo-deployment.yaml" ]; then
+          kubectl apply -f k8s/mongo-deployment.yaml
+          kubectl apply -f k8s/mongo-service.yaml
+          echo "MongoDB deployed"
         fi
         
-        # Проверяем деплой
-        echo "=== Checking deployment ==="
-        kubectl get pods,svc,deploy
-        echo "✓ Deployment completed"
+        # Применяем манифесты приложения
+        if [ -f "k8s/deployment.yaml" ]; then
+          kubectl apply -f k8s/deployment.yaml
+          kubectl apply -f k8s/service.yaml
+          echo "Application deployed"
+        fi
+        
+        # Ждем запуска подов
+        echo "Waiting for pods to be ready..."
+        sleep 30
+        
+        # Проверяем состояние
+        echo "=== Current state ==="
+        kubectl get pods,svc,deploy -o wide
+        
+        # Получаем URL
+        echo "=== Application URL ==="
+        minikube service todo-app-service --url || echo "Run: minikube service todo-app-service --url"
+        
+    # 5. Тестирование
+    - name: Test Application
+      run: |
+        echo "=== Testing application ==="
+        
+        # Получаем URL сервиса
+        APP_URL=$(minikube service todo-app-service --url 2>/dev/null | head -1)
+        
+        if [ -n "$APP_URL" ]; then
+          echo "Testing endpoint: $APP_URL/todos"
+          
+          # Пробуем несколько раз
+          for i in {1..5}; do
+            echo "Attempt $i..."
+            if curl -s "$APP_URL/todos"; then
+              echo "✅ Application is responding!"
+              break
+            else
+              echo "Waiting... ($i/5)"
+              sleep 10
+            fi
+          done
+        else
+          echo "Could not get service URL"
+          echo "Debug info:"
+          kubectl describe service todo-app-service
+        fi
